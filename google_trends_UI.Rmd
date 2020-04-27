@@ -151,14 +151,11 @@ weekly_data3 = data_states_short %>% bind_rows(national_trend) %>%
   summarize(hits = mean(hits, na.rm= TRUE), date = max(date)) %>% filter(month(date) > 1)
 
 growth_rate_weekly = weekly_data %>%
-   filter(week >= 8 & week < 17 ) %>%
+  filter(week >= 8 & week <= week(today_date)) %>%
   select(location, hits = hits, week, date, dow) %>%
-  mutate(late = case_when(week == 12 ~ "late",
-                          week == 13 ~ "late_nyt",
-                          week == 14 ~ "late_next",
-                          week == 15 ~ "late_next2",
-                          week == 16 ~ "late_next3",
-                          TRUE ~ "early")) %>%
+  mutate(late = case_when(week < 12 ~ "early",
+                          week == 12 ~ "late",
+                          TRUE ~ paste("week",week,sep = ""))) %>%
   group_by(location, late, dow) %>%
   summarize(hits = mean(hits, na.rm=TRUE)) %>%
   filter(!is.na(hits)) %>% spread(late, hits) %>%
@@ -178,14 +175,11 @@ growth_rate_weekly2 = weekly_data2 %>%
          diff = late - early)
 
 growth_rate_weekly3 = weekly_data3 %>%
-   filter(week >= 8 & week <= 16 ) %>%
+   filter(week >= 8 & week <= (week(today_date)-1) ) %>%
   select(location, hits = hits, week, date) %>%
-  mutate(late = case_when(week == 12 ~ "late",
-                          week == 13 ~ "late_nyt",
-                          week == 14 ~ "late_next",
-                          week == 15 ~ "late_next2",
-                          week == 16 ~ "late_next3",
-                          TRUE ~ "early")) %>%
+  mutate(late = case_when(week < 12 ~ "early",
+                          week == 12 ~ "late",
+                          TRUE ~ paste("week",week,sep = ""))) %>%
   group_by(location, late) %>%
   summarize(hits = mean(hits, na.rm=TRUE)) %>%
   filter(!is.na(hits)) %>% spread(late, hits) %>%
@@ -237,14 +231,21 @@ UI_Claims_April04_True <- read_excel("data/StateUIClaims_04052020.xlsx", sheet =
   select(location, advance_0404=Advance, updated_0322=`Prior Wk`) %>%
   mutate(location = replace_na(location, "DC"))
 
-
 UI_Claims_April11_True <- read_excel("data/StateUIClaims_04112020.xlsx", sheet = "States") %>%
   left_join(tibble(STATE = state.name, location = state.abb)) %>%
   select(location, advance_0411=Advance, updated_0404=`Prior Wk`) %>%
   mutate(location = replace_na(location, "DC"))
 
+UI_Claims_April18_True <- read_excel("data/StateUIClaims_04182020.xlsx", sheet = "WE0418") %>%
+  left_join(tibble(STATE = state.name, location = state.abb)) %>%
+  select(location, advance_0418=Advance, updated_0411=`Prior Wk`) %>%
+  mutate(location = replace_na(location, "DC"))
 
-UI_Claims_True = UI_Claims_March28_True %>% left_join(UI_Claims_April04_True) %>% left_join(UI_Claims_April11_True) %>% select(-`2 week total`)
+UI_Claims_True = UI_Claims_March28_True %>% 
+  left_join(UI_Claims_April04_True) %>% 
+  left_join(UI_Claims_April11_True) %>% 
+  left_join(UI_Claims_April18_True) %>%
+  select(-`2 week total`)
 
 ## Read in Labor force data
 
@@ -302,7 +303,7 @@ model_report_daily_unweighted = lm(ui_norm ~ hits_norm, data =  report_UI_GT_dat
 ```{r, include=FALSE, message=FALSE, warning=FALSE}
 
 daily_predict_data = data_states_short %>%
-  filter(epiweek(date) > 11 & epiweek(date) <= 16) %>%
+  filter(epiweek(date) > 11 & epiweek(date) <= epiweek(today_date)) %>%
   mutate(dow = wday(date)) %>%
   left_join(growth_rate_weekly %>%
               select(location, early, dow)) %>%
@@ -356,32 +357,22 @@ weekly_predict_data = daily_predict_data %>%
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
 
-
+seasonal_adj <- read_excel("data/SAFactor.xlsx", sheet = "Sheet1") 
 
 report_output_text = weekly_predict_data %>%
   ungroup() %>% filter(week  > 11) %>%
   mutate(predicted_ui = predicted_ui_report/1e6,
          predicted_ui_lb = predicted_ui_lb_report/1e6,
          predicted_ui_ub = predicted_ui_ub_report/1e6) %>%
-  mutate(predicted_ui_sa = case_when(week == 12 ~ predicted_ui/0.833,
-                                     week == 13 ~ predicted_ui/0.876,
-                                     week == 14 ~ predicted_ui*1.065,
-                                     week == 15 ~ predicted_ui*1.0548,
-                                     week == 16 ~ predicted_ui*1.037),
-         predicted_ui_lb_sa = case_when(week == 12 ~ predicted_ui_lb/0.833,
-                                     week == 13 ~ predicted_ui_lb/0.876,
-                                     week == 14 ~ predicted_ui_lb*1.065,
-                                     week == 15 ~ predicted_ui_lb*1.0548,
-                                     week == 16 ~ predicted_ui_lb*1.037),
-         predicted_ui_ub_sa = case_when(week == 12 ~ predicted_ui_ub/0.833,
-                                     week == 13 ~ predicted_ui_ub/0.876,
-                                     week == 14 ~ predicted_ui_ub*1.065,
-                                     week == 15 ~ predicted_ui_ub*1.0548,
-                                     week == 16 ~ predicted_ui_ub*1.037)) %>%
+  left_join(seasonal_adj %>% 
+            select("week", "sf") %>%
+            mutate(sf = 100/sf))%>%
+  mutate(predicted_ui_sa = predicted_ui*sf,
+         predicted_ui_lb_sa = predicted_ui_lb*sf,
+         predicted_ui_ub_sa = predicted_ui_ub*sf) %>%
   select(week, predicted_ui, predicted_ui_lb, predicted_ui_ub,
          ends_with("sa")) %>%
   group_by(week) %>% summarize_all(sum)
-
 
 options(knitr.kable.NA = "--")
 report_output = weekly_predict_data %>% ungroup() %>% filter(week == 12 | week == 13) %>%
@@ -391,7 +382,7 @@ report_output = weekly_predict_data %>% ungroup() %>% filter(week == 12 | week =
   left_join(growth_rate_weekly3) %>%
   rename(State = location) %>%
   mutate(google_12 = late - early,
-         google_13 = late_nyt - early) %>%
+         google_13 = week13 - early) %>%
   select(State,  Advance, google_12, `12`,  google_13, `13`) %>%
   mutate(Total = `12` + `13`)
 ```
@@ -489,18 +480,23 @@ state_labels = data_states_short %>%
   filter(!is.na(hits)) %>%
   filter(row_number() == n())
 
-
-
 plot_data_ntl = national_trend %>% mutate(date = date(date)) %>%
-  filter(date >= ymd("2020-02-22") & date <= ymd("2020-04-20")) %>%
+  filter(date >= ymd("2020-02-22") & date <= max(date)) %>%
   mutate(location = "USA") %>%
   bind_rows(data_states_short %>% filter(date >= ymd("2020-02-22")) %>%
               filter(location %in% c("NY", "CA", "OH", "PA", "MI", "FL", "AZ")))
 
 plot_data_ntl$location <- relevel(as.factor(plot_data_ntl$location), "USA")
-dates = plot_data_ntl %>% select(date) %>% unique()
-sats <- which( wday(dates$date)==7)
-suns <- which(wday(dates$date)==1)
+
+weekends <- plot_data_ntl %>%
+  select(date) %>% unique() %>%
+  mutate(day = wday(date)) %>%
+  filter(day == 7) %>%
+  mutate(sat = date,
+         sun = date + 1) %>%
+  select(c("sat", "sun"))
+
+max_gt_date = as.Date(max(plot_data_ntl$date))
 
 plot_data_ntl %>% write_csv("data/plot_data_ntl.csv")
 ggplot() +
@@ -509,43 +505,21 @@ ggplot() +
   geom_text_repel(data = plot_data_ntl %>% group_by(location) %>% filter(row_number() == n()),
                   aes(y = hits, x = date, label = location, color=location), segment.alpha = 0.5,
                   nudge_x = 1.5, show.legend=FALSE) +
-  geom_rect(aes(xmin=dates$date[sats[1]], xmax=dates$date[suns[1]],
-                  ymin=-Inf, ymax=Inf),
-            fill='grey', alpha=0.25) +
-  geom_rect(aes(xmin=dates$date[sats[2]], xmax=dates$date[suns[2]],
-                  ymin=-Inf, ymax=Inf),
-            fill='grey', alpha=0.25) +
-  geom_rect(aes(xmin=dates$date[sats[3]], xmax=dates$date[suns[3]],
-                  ymin=-Inf, ymax=Inf),
-            fill='grey', alpha=0.25) +
-  geom_rect(aes(xmin=dates$date[sats[4]], xmax=dates$date[suns[4]],
-                  ymin=-Inf, ymax=Inf),
-            fill='grey', alpha=0.25) +
-  geom_rect(aes(xmin=dates$date[sats[5]], xmax=dates$date[suns[5]],
-                  ymin=-Inf, ymax=Inf),
-            fill='grey', alpha=0.25) +
-    geom_rect(aes(xmin=dates$date[sats[6]], xmax=dates$date[suns[6]],
-                  ymin=-Inf, ymax=Inf),
-            fill='grey', alpha=0.25) +
-      geom_rect(aes(xmin=dates$date[sats[7]], xmax=dates$date[suns[7]],
-                  ymin=-Inf, ymax=Inf),
-            fill='grey', alpha=0.25) +
-      geom_rect(aes(xmin=dates$date[sats[8]], xmax=dates$date[suns[8]],
-                  ymin=-Inf, ymax=Inf),
-            fill='grey', alpha=0.25) +
   theme_classic(base_size=15) +
-  scale_color_manual(values = c(  "black", gg_color_hue(7)))+
+  scale_color_manual(values = c("black", gg_color_hue(7)))+
   labs(x = "Date",
        y = "",
        title="Daily Google search intensity  for 'File for unemployment'",
-       subtitle = "From 2020-2-22 to 2020-4-18, highlighting national trend and select states",
+       subtitle = paste("From 2020-2-22 to", max_gt_date, "highlighting national trend and select states"),
        caption = "Weekends shaded",
        color = "Search Regions"
-  )
+  ) + 
+  geom_rect(data = weekends, aes(xmin=sat, xmax=sun, ymin=-Inf, ymax=+Inf), fill='grey', alpha=0.25)
 ggsave("plot_data_ntl.pdf")
 
-growth_rate_weekly3 %>% select(location, early, late, late_nyt) %>%
-  rename(baseline = early, week0315 = late, week0322 = late_nyt) %>% write_csv("growth_rate_weekly.csv")
+growth_rate_weekly3 %>% select(location, early, late, week13) %>%
+  rename(baseline = early, week0315 = late, week0322 = week13) %>% write_csv("growth_rate_weekly.csv")
+
 
 ```
 
@@ -626,31 +600,17 @@ We additionally report the non-seasonally adjusted numbers below as well.
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
 
 weekly_predict_data  %>%  ungroup() %>%
-  mutate(week_str = case_when(week == 12 ~ "3/15-3/21",
-                              week == 13 ~ "3/22-3/28",
-                              week == 14 ~ "3/29-4/4",
-                              week == 15 ~ "4/5-4/11",
-                              week == 16 ~ "4/12-4/18")) %>%
+  mutate(week_str = paste(format.Date(first_date, format="%m/%d"),"-",format.Date(last_date, format="%m/%d"),sep="")) %>%
   group_by(week_str) %>%
   mutate(predicted_ui_report = predicted_ui_report/1e6,
          predicted_ui_lb_report = predicted_ui_lb_report/1e6,
          predicted_ui_ub_report = predicted_ui_ub_report/1e6) %>%
-mutate(predicted_ui_report_sa = case_when(week == 12 ~ predicted_ui_report/0.833,
-                                     week == 13 ~ predicted_ui_report/0.876,
-                                     week == 14 ~ predicted_ui_report*1.065,
-                                     week == 15 ~ predicted_ui_report*1.0548,
-                                     week == 16 ~ predicted_ui_report*1.037),
-       
-         predicted_ui_lb_report_sa = case_when(week == 12 ~ predicted_ui_lb_report/0.833,
-                                     week == 13 ~ predicted_ui_lb_report/0.876,
-                                     week == 14 ~ predicted_ui_lb_report*1.065,
-                                     week == 15 ~ predicted_ui_lb_report*1.0548,
-                                     week == 16 ~ predicted_ui_lb_report*1.037),
-         predicted_ui_ub_report_sa = case_when(week == 12 ~ predicted_ui_ub_report/0.833,
-                                     week == 13 ~ predicted_ui_ub_report/0.876,
-                                     week == 14 ~ predicted_ui_ub_report*1.065,
-                                     week == 15 ~ predicted_ui_ub_report*1.0548,
-                                     week == 16 ~ predicted_ui_ub_report*1.037)) %>%
+  left_join(seasonal_adj %>% 
+            select("week", "sf") %>%
+            mutate(sf = 100/sf))%>%
+  mutate(predicted_ui_report_sa = predicted_ui_report*sf,
+         predicted_ui_lb_report_sa = predicted_ui_lb_report*sf,
+         predicted_ui_ub_report_sa = predicted_ui_ub_report*sf) %>%
   select(week_str, week, ends_with("report"), ends_with("sa")) %>%
   summarize_all(sum) %>%
   arrange(week) %>% select(-week)%>%
@@ -986,8 +946,8 @@ weekly_predict_data %>% ungroup() %>% filter(week == 12 | week == 13 | week == 1
   left_join(growth_rate_weekly3) %>%
   rename(State = location) %>%
   mutate(google_12 = late - early,
-         google_13 = late_nyt - early,
-         google_14 = late_next - early) %>%
+         google_13 = week13 - early,
+         google_14 = week14 - early) %>%
   select(State,  Advance, google_12, `12`,  google_13, `13`, google_14, `14`) %>%
   mutate(Total = `12` + `13`) %>%
   select(State, pred_total = Total, pred_0315 = `12`, pred_0322 =`13`, pred_0328 =`14`,
