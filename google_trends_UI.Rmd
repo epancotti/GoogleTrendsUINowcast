@@ -118,10 +118,11 @@ Sys.sleep(10)
 #
 data_states_short = data_full %>% group_by(location, date) %>% summarize(hits = mean(hits))
 ## We do this b/c otherwise Google Trends API shuts us off  (already blocked for today)
-data_states_short %>% write_csv("data/data_states_2020_02_01_2020_04_16a.csv")
+today_date_filename = format.Date(today(), format="%Y_%m_%d")
 
+data_states_short %>% write_csv(paste("data/data_states_2020_02_01_",today_date_filename,"a.csv", sep = ""))
 
-data_states_short = read_csv("data/data_states_2020_02_01_2020_04_16a.csv")
+data_states_short = read_csv(paste("data/data_states_2020_02_01_",today_date_filename,"a.csv", sep = ""))
 
 
 ```
