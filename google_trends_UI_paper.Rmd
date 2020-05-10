@@ -37,6 +37,10 @@ library(janitor)
 library(RColorBrewer)
 library(data.table)
 library(reshape2)
+library(lfe)
+library(tidyr)
+library(broom)
+
 
 
 lm_eqn = function(m) {
@@ -828,11 +832,74 @@ ggplot(data = evaluation) +
 
 ```
 
+How do we do:
 
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+
+## NEED TO FIX THIS TO DO SEVERAL THINGS: 
+  # - Relabel and reorder axis so that it shows the date ranges for the week
+  # - Add PUA number of claims for weeks > 17
+reported_sa <- UI_Claims_True %>%
+  select(-contains("updated"))%>%
+  gather(last_date, advance, contains("advance")) %>%
+  mutate(last_date = str_remove(last_date, "advance_")) %>%
+  mutate(last_date = paste0(substr(last_date, start = 1, stop = 2),"/",substr(last_date, start = 3, stop = 4),"/2020", sep = "")) %>%
+  mutate(week = week(mdy(last_date))) %>%
+  mutate(advance = advance/1e6) %>%
+  left_join(seasonal_adj %>% 
+            select("week", "sf") %>%
+            mutate(sf = 100/sf)) %>%
+  mutate(advance_sa = advance * sf) 
+
+predicted_sa <- weekly_predict_data %>%
+  mutate(week_str = paste(format.Date(first_date, format="%m/%d"),"-",format.Date(last_date, format="%m/%d"),sep="")) %>%
+    left_join(seasonal_adj %>% 
+            select("week", "sf") %>%
+            mutate(sf = 100/sf)) %>%
+  mutate(predicted_ui_report = predicted_ui_report/1e6,
+         predicted_ui_lb_report = predicted_ui_lb_report/1e6,
+         predicted_ui_ub_report = predicted_ui_ub_report/1e6) %>%
+  mutate(predicted_ui_report_sa = predicted_ui_report*sf,
+         predicted_ui_lb_report_sa = predicted_ui_lb_report*sf,
+         predicted_ui_ub_report_sa = predicted_ui_ub_report*sf) %>%
+  select(week_str, week, ends_with("sa")) 
+
+predict_vs_report <- left_join(predicted_sa, reported_sa)%>%
+  group_by(week_str, week) %>%
+  summarise(predicted_ui_report_sa = sum(predicted_ui_report_sa),
+            predicted_ui_lb_report_sa = sum(predicted_ui_lb_report_sa),
+            predicted_ui_ub_report_sa = sum(predicted_ui_ub_report_sa),
+            advance_sa = sum(advance_sa)) %>%
+filter(week < week(today_date))
+
+cbscheme <- c("#E69F00", "#0072B2", "#D55E00")
+  
+ggplot(data = predict_vs_report) +
+  geom_pointrange(aes(y = predicted_ui_report_sa, ymin = predicted_ui_lb_report_sa,
+                      ymax = predicted_ui_ub_report_sa, x = week), color = cbscheme[2], size = .5) +
+  geom_point(aes(y = advance_sa, x = week),  color = cbscheme[1], size = 2) +
+   geom_text_repel(aes(y = predicted_ui_report_sa, x = week,  label = round(predicted_ui_report_sa,digits=1)), color = cbscheme[2], size = 3, nudge_x = -0.25) +
+  geom_text_repel(aes(y = advance_sa, x = week,  label = round(advance_sa, digits = 1)), color = cbscheme[1], size = 3, nudge_x = 0.25) +
+  ylim(c(0,10)) +
+  theme_classic(base_size=10) +
+  coord_flip() +
+labs(x= "Time Period", y = "Estimated National Claims, Seasonally Adjusted (Millions)") 
+
+```
 
 # Estimating the impact of state stay-at-home orders on layoffs
 
-Due to the delay and aggregation of initial unemployment insurance claims reports, it is difficult to estimate the effect of events and policies on unemployment. Especially when events happen over a short period of time or are clustered within one week. An example of this is the business restriction and closure orders implemented by states as social distancing measures in the wake of the COVID-19 pandemic. These non-pharmaceutical interventions (NPIs) caused businesses to durastically reduce or alter operations, or suspend them all together. Because of potential reductions in economic activity induced by many NPIs, policymakers may delay implementation, shorten durations, or reduce the number of NPIs in attempt to lessen the effects. As a result, there is considerable variation in the timing and strength of NPIs across states. 
+Due to the delay and aggregation of initial unemployment insurance claims reports, it is difficult to estimate the effect of events and policies on unemployment, especially when events happen over a short period of time or are clustered within a few weeks. High-frequency data that is a reliable proxy can enable important and real-time policy analysis to help inform decisions.
+
+An example of this is the business restriction and closure orders implemented by states as social distancing measures in the wake of the COVID-19 pandemic. These non-pharmaceutical interventions (NPIs) caused businesses to durastically reduce or alter operations, or suspend them all together. Because of potential reductions in economic activity induced by many NPIs, policymakers may delay implementation, shorten durations, or reduce the number of NPIs in attempt to lessen the effects. As a result, there is considerable variation in the timing of NPIs across states. 
+
+States vary considerably in the businesses and activities covered under these orders. We focus on two types of orders: partial (defined as prohibitoins on guests dining-in at restaurants) and complete (defined as orders for non-essential businesses to close). We collect the dates for these orders from state governors' orders; the day of the order is defined as the *effective* date, not the announcement date [@KFF]. See figure A.TBA.
+
+Business and school closure orders and prohibitions on large-gatherings and dining-in at restaurants were spread across a three week period. While there is some variation in timing across weeks, there is much more variation across days. With normal (weekly) initial unemployment insurance claims data, it would be difficult to identify what proportion of the increase in unemployment insurance claims is due to NPIs (e.g., partial and complete business closure orders) and what proportion is due to other policies or other pandemic-induced economic changes.
+
+To illustrate the volume of searches over time compared to policy orders, figure TBA shows the average search intensity over time, weighted by states' February 2020 labor force, by complete closure date. The figure also plots the average partial closure date for each group. 
+
+Search intensity is sometimes elevated before partial closures are enacted-- potentially due to announcement dates being 1-2 days before effective dates. This suggests that restaurants, and other businesses affected by partial closure orders (often, e.g., gyms, spas) may lay employees off in anticipation of closure orders and/or decreased demand. Search intensity remains elevated between the enactment dates of partial and complete orders and does not always spike the day of or after the complete enactment date. Again, these orders are sometimes announced 1-2 days before effective dates, however there is typically more than 1-2 days between partial and compelte orders. This provides further evidence for the hypothesis that businesses were laying people off (and workers were subsequently googling how to file for unemployment) before businesses were ordered to close. @KongPrinz explore this hypothesis further and find that partial and complete closures account for only 4-9% of UI claims. 
 
 ```{r, echo = FALSE, warning=FALSE, message=FALSE}
 
@@ -844,6 +911,161 @@ data_policy_states <- read_xlsx("data/covid_closures_by_state.xlsx") %>%
   mutate(region = tolower(state)) %>%
   rename("location" = "state_abbr")
 
+
+policy_search_lf_filtered3 <- data_policy_states %>%
+  #Filter to treatment and control
+    mutate(complete_treatment = case_when(
+                          complete <= as.Date("2020-03-24") ~ paste(complete),
+                          complete >= as.Date("2020-03-30") ~ "On/After 2020-3-29",
+                          complete = is.na(complete) ~ "On/After 2020-3-29")) %>%
+    filter(!is.na(complete_treatment)) %>%
+  #Add in google search data
+    left_join(data_states_short, by = "location") %>%
+  #Filter out lots of pre-data
+    filter(date > as.Date("2020-03-1")) %>%
+  #Merge in labor force data for weighting 
+    left_join(lf_state, by = "location") %>%
+  #Collapse hits by date by group, weighted by lf size
+      group_by(date, complete_treatment) %>% 
+      summarize_at(c("hits", "partial", "complete"), list(weighted.mean), weight = "lf_022020") 
+  
+##Plot
+my_blue <- colorRampPalette(brewer.pal(8, "Blues"))(9)
+my_blue <- my_blue[-(1:2)]
+
+  ggplot() +
+  geom_line(data = policy_search_lf_filtered3 %>% 
+              filter(complete_treatment == "On/After 2020-3-29"), 
+            aes(x = date, y = hits, group = complete_treatment, color = complete_treatment), lwd=1.5) + 
+    
+  geom_line(data = policy_search_lf_filtered3 %>% 
+              filter(date <= partial & complete_treatment != "On/After 2020-3-29" ), 
+            aes(x = date, y = hits, group = complete_treatment, color = complete_treatment), linetype = "dotted") + 
+    
+  geom_line(data = policy_search_lf_filtered3 %>% 
+              filter(date <= complete & date >= partial & complete_treatment != "On/After 2020-3-29"),
+            aes(x = date, y = hits, group = complete_treatment, color = complete_treatment), linetype = "dashed") + 
+    
+  geom_line(data = policy_search_lf_filtered3 %>%
+              filter(date >= complete_treatment & complete_treatment != "On/After 2020-3-29" ), 
+            aes(x = date, y = hits, group = complete_treatment, color = complete_treatment), linetype = "solid") + 
+    
+  geom_point(data = policy_search_lf_filtered3 %>% 
+               filter(date == partial & complete_treatment != "On/After 2020-3-29"),
+             aes(x = partial, y = hits, group = complete_treatment, color = complete_treatment), shape = 1, size = 3) +
+    
+  geom_point(data = policy_search_lf_filtered3 
+             %>% filter(date == complete_treatment & complete_treatment != "On/After 2020-3-29"),
+             aes(x = complete, y = hits, group = complete_treatment, color = complete_treatment), size = 3) +
+
+  theme_classic(base_size=10) + 
+  labs(x = "Date",
+       y = "Google Search Intensity", 
+       title = "Search Intensity Around Time of Complete Closure",
+       subtitle = "Weighted by size of states' labor force in Feb. 2020") +
+  scale_colour_manual(values=c(my_blue, "black"), name = "Complete Closure Date") +
+  scale_x_date(date_breaks = "2 days", 
+                 date_labels = "%m-%d",
+                 limits = as.Date(c("2020-03-7","2020-03-29"))) + 
+  labs(caption = "Notes: Open point indicates date when state enacted partial closure.
+  Closed point indicates when state enacted complete closure.
+  Lines are dotted until partial date, dashed from partial to complete, and solid after complete.") + 
+  theme(plot.caption = element_text(hjust = 0, size = 9))
+```
+
+There is little inter-week variation in closure order adoption-- most closure orders were clustered over two weeks. Without our model, attempts to identify the effects of NPIs, including closure orders and other policies, would be nearly impossible. High-frequency proxy data (such as Google Trends) can serve as an important tool for evaluating the effects of policies in real time.
+
+```{r, eval = FALSE, echo = FALSE, warning=FALSE, message=FALSE}
+
+#CAN ALSO INCLUDE THESE EVENT STUDIES IF WE WANT TO, OR WE CAN JUST POINT TO KONG & PRINZ
+#TO ENABLE, CHANGE eval = FALSE TO TRUE
+
+##Merge policy data with google search data 
+policy_event_study <- left_join(data_states_short, data_policy_states, by = "location") %>%
+  filter(date > as.Date("2020-03-01") ) %>%
+  mutate(daystopartial = difftime(date, partial , units = c("days")))  %>%
+  mutate(daystocomplete = difftime(date, complete , units = c("days"))) %>%
+  group_by(location) %>%
+  mutate(laghits=dplyr::lag(hits, order_by = location)) %>%
+  ungroup %>%
+  pivot_longer(
+    cols = c(daystopartial, daystocomplete),
+    names_to = "type",
+    values_to = "days"
+  ) 
+
+##Define event study pre and post length
+es_start = -7
+es_end = 4
+es_length = 11
+
+## This sets the baseline period to t-1, change by making ref = 8 for t0 or ref = 6 for t-2
+policy_event_study_releveled <- policy_event_study %>%
+  filter(days %in% es_start:es_end) %>%
+  mutate(days_factor = fct_relevel(as.factor(days), "-1"))
+
+#Event study around partial closure policies
+partial_es <-felm(hits ~ days_factor | as.factor(location) | 0 | partial, 
+             data = subset(policy_event_study_releveled, type == "daystopartial"))
+
+reg_est<-tidy(partial_es, conf.int = TRUE, conf.level = 0.95)%>%
+  add_row(term = "days_factor-1", estimate=0) %>%
+  mutate(days = as.numeric(str_remove(term, "days_factor")))
+
+#Plot the event study
+ggplot(data=reg_est, aes(x=days, y=estimate)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high),color = "gray50") + #include 95% CIs
+  geom_point() + # plot the point ests
+  geom_line(,color = "black") + 
+  geom_vline(xintercept = -1, color = "darkgreen", size = 1.5, alpha = .75) +
+  labs(y = "Change in Google Search Intensity",
+       x = "Days from Partial Closure Order",
+       title="Search Trends in Response to Partial Closures") +
+  theme_classic(base_size=12) +
+  scale_x_continuous(breaks = seq(es_start, es_end, by = 1)) +
+  labs(caption = "Note: Standard errors are clustered at the closure-day level.") 
+
+
+#Event study around complete closure policies
+complete_es <-felm(hits ~ days_factor | as.factor(location) | 0 | complete, 
+             data = subset(policy_event_study_releveled, type == "daystocomplete"))
+
+reg_est<-tidy(complete_es, conf.int = TRUE, conf.level = 0.95)%>%
+  add_row(term = "days_factor-1", estimate=0) %>%
+  mutate(days = as.numeric(str_remove(term, "days_factor")))
+
+#Plot the event study
+ggplot(data=reg_est, aes(x=days, y=estimate)) + 
+  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), color = "gray50") + #include 95% CIs
+  geom_point() + # plot the point ests
+  geom_line(,color = "black") + 
+  geom_vline(xintercept = -1, color = "navy", size = 1.5, alpha = .75) +
+  labs(y = "Change in Google Search Intensity",
+       x = "Days from Complete Closure Order",
+       title="Search Trends in Response to Complete Closures") +
+  theme_classic(base_size=12) +
+  scale_x_continuous(breaks = seq(es_start, es_end, by = 1)) +
+  labs(caption = "Note: Standard errors are clustered at the closure-day level.") 
+
+
+```
+
+# Robustness
+
+## How does the slope coefficient change as the estimation sample widens?
+
+
+## How does the model's share of variance explained change as the estimation sample widens?
+
+
+# Conclusion
+Speedy information about recessionary turns have great value to inform policymakers, businesses and others making economic decisions. Data on internet search intensity consistent across geographies is available at a faster pace than data on new UI claims and so can provide a basis for more-timely prediction of recessionary shifts. Given proper care in data construction, even simple modeling techniques yield informative predictions. The more-general principle that, in a world where individuals use internet search as an early stage in pursuing many economic actions, its consistency across place and time and the speed of its release makes search-intensity data a potentially useful proxy for many economic variables of interest [@ChoiVarian].
+
+
+# Appendix
+
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
 
 ##Add shape files
 states <- map_data("state")
@@ -901,214 +1123,6 @@ complete_map
 partial_map
 
 ```
-
-Business and school closure orders and prohibitions on large-gatherings and dining-in at restaurants were spread across a three week period. While there is some variation in timing across weeks, there is much more variation across days. With normal initial unemployment insurance claims data, it would be difficult to identify what proportion of the increase in unemployment insurance claims is due to NPIs, like partial and complete closure orders, and what proportion is due to other policies or other pandemic-induced economic changes. 
-
-
-
-
-
-
-
-
-```{r, echo = FALSE, warning=FALSE, message=FALSE}
-
-##Merge policy data with google search data 
-policy_event_study <- left_join(data_states_short, data_policy_states, by = "location") %>%
-  filter(date > as.Date("2020-03-01") ) %>%
-  mutate(daystopartial = difftime(date, partial , units = c("days")))  %>%
-  mutate(daystocomplete = difftime(date, complete , units = c("days"))) %>%
-  group_by(location) %>%
-  mutate(laghits=dplyr::lag(hits, order_by = location)) %>%
-  ungroup %>%
-  pivot_longer(
-    cols = c(daystopartial, daystocomplete),
-    names_to = "type",
-    values_to = "days"
-  ) 
-
-##Define event study pre and post length
-es_start = -7
-es_end = 4
-es_length = 11
-
-## This sets the baseline period to t-1, change by making ref = 8 for t0 or ref = 6 for t-2
-policy_event_study_releveled <- policy_event_study %>%
-  filter(days %in% es_start:es_end) %>%
-  mutate(days_factor = fct_relevel(as.factor(days), "-1"))
-
-#Event study around partial closure policies
-partial_es <-felm(hits ~ days_factor | as.factor(location) | 0 | 0, 
-             data = subset(policy_event_study_releveled, type == "daystopartial"))
-
-reg_est<-tidy(partial_es, conf.int = TRUE, conf.level = 0.95)%>%
-  add_row(term = "days_factor-1", estimate=0) %>%
-  mutate(days = as.numeric(str_remove(term, "days_factor")))
-
-#Plot the event study
-ggplot(data=reg_est, aes(x=days, y=estimate)) + 
-  geom_errorbar(aes(ymin=conf.low, ymax=conf.high),color = "gray50") + #include 95% CIs
-  geom_point() + # plot the point ests
-  geom_line(,color = "black") + 
-  geom_vline(xintercept = -1, color = "darkgreen", size = 1.5, alpha = .75) +
-  labs(y = "Change in Google Search Intensity",
-       x = "Days from Partial Closure Order",
-       title="Search Trends in Response to Partial Closures") +
-  theme_classic(base_size=12) +
-  scale_x_continuous(breaks = seq(es_start, es_end, by = 1))
-
-
-#Event study around complete closure policies
-complete_es <-felm(hits ~ days_factor | as.factor(location) | 0 | 0, 
-             data = subset(policy_event_study_releveled, type == "daystocomplete"))
-
-reg_est<-tidy(complete_es, conf.int = TRUE, conf.level = 0.95)%>%
-  add_row(term = "days_factor-1", estimate=0) %>%
-  mutate(days = as.numeric(str_remove(term, "days_factor")))
-
-#Plot the event study
-ggplot(data=reg_est, aes(x=days, y=estimate)) + 
-  geom_errorbar(aes(ymin=conf.low, ymax=conf.high), color = "gray50") + #include 95% CIs
-  geom_point() + # plot the point ests
-  geom_line(,color = "black") + 
-  geom_vline(xintercept = -1, color = "navy", size = 1.5, alpha = .75) +
-  labs(y = "Change in Google Search Intensity",
-       x = "Days from Complete Closure Order",
-       title="Search Trends in Response to Complete Closures") +
-  theme_classic(base_size=12) +
-  scale_x_continuous(breaks = seq(es_start, es_end, by = 1))
-
-
-
-
-
-```
-
-
-BLAH BLAH BLAH 
-
-
-```{r, echo = FALSE, warning=FALSE, message=FALSE}
-
-policy_search_lf_filtered3 <- data_policy_states %>%
-  #Filter to treatment and control
-    mutate(complete_treatment = case_when(
-                          complete == as.Date("2020-03-23") ~ "Treatment",
-                          complete >= as.Date("2020-03-31") ~ "Control",
-                          complete = is.na(complete) ~ "Control")) %>%
-    filter(!is.na(complete_treatment)) %>%
-  #Add in google search data
-    left_join(data_states_short, by = "location") %>%
-  #Filter out lots of pre-data
-    filter(date > as.Date("2020-03-10") ) %>%
-  #Merge in labor force data for weighting 
-    left_join(lf_state, by = "location") 
-  #Collapse hits by date by group, weighted by lf size, for control group
-  policy_search_lf_filtered3_c <- policy_search_lf_filtered3 %>%
-    filter(complete_treatment == "Control") %>%
-    mutate(location = "Control") %>%
-      group_by(date, location, complete_treatment) %>% 
-      summarize_at("hits", list(weighted.mean), weight = "lf_022020") 
-  #Merge collapsed control group data back in 
-  policy_search_lf_filtered3 <- policy_search_lf_filtered3 %>%
-    filter(complete_treatment == "Treatment") %>% 
-    subset(select = c("location", "hits", "date", "complete_treatment", "partial", "complete")) %>%
-    full_join(policy_search_lf_filtered3_c)
-  
-##Plot
-my_blue = brewer.pal(n = 9, "Blues")[3:9]
-
-  ggplot() +
-  geom_line(data = policy_search_lf_filtered3 %>% filter(location == "Control"), 
-            aes(x = date, y = hits, group = location, color = location), lwd=1.5) + 
-  geom_line(data = policy_search_lf_filtered3, 
-            aes(x = date, y = hits, group = location, color = location)) + 
-  annotate("rect", xmin = as.Date("2020-03-22"), xmax = as.Date("2020-03-24"), min = 0, ymax = Inf, alpha = .1, fill = "black") + 
-  geom_point(data = policy_search_lf_filtered3 %>% filter(date == partial & location != "Control"),
-             aes(x = partial, y = hits, group = location, color = location)) +
-  theme_classic(base_size=10) + 
-  labs(x = "Date",
-       y = "Google Search Intensity", 
-       title = "Search Intensity Around Time of Complete Closure",
-       subtitle = "Weighted by size of states' labor force in Feb. 2020") +
-  scale_colour_manual(values=c("black", my_blue), name = "State") +
-  scale_x_date(date_breaks = "2 days", 
-                 date_labels = "%m-%d",
-                 limits = as.Date(c("2020-03-10","2020-03-31"))) + 
-  labs(caption = "Note: Control group includes states that had not enacted a complete closure by 3/30. \nPoint indicates date when state enacted partial closure.") + 
-  theme(plot.caption = element_text(hjust = 0, size = 9))
-  
-```
-
-# Robustness
-
-## How does the slope coefficient change as the estimation sample widens?
-
-
-## How does the model's share of variance explained change as the estimation sample widens?
-
-
-# Conclusion
-Speedy information about recessionary turns have great value to inform policymakers, businesses and others making economic decisions. Data on internet search intensity consistent across geographies is available at a faster pace than data on new UI claims and so can provide a basis for more-timely prediction of recessionary shifts. Given proper care in data construction, even simple modeling techniques yield informative predictions. The more-general principle that, in a world where individuals use internet search as an early stage in pursuing many economic actions, its consistency across place and time and the speed of its release makes search-intensity data a potentially useful proxy for many economic variables of interest [@ChoiVarian].
-
-How do we do:
-
-```{r, echo = FALSE, warning=FALSE, message=FALSE}
-
-## NEED TO FIX THIS TO DO SEVERAL THINGS: 
-  # - Relabel and reorder axis so that it shows the date ranges for the week
-  # - Add PUA number of claims for weeks > 17
-reported_sa <- UI_Claims_True %>%
-  select(-contains("updated"))%>%
-  gather(last_date, advance, contains("advance")) %>%
-  mutate(last_date = str_remove(last_date, "advance_")) %>%
-  mutate(last_date = paste0(substr(last_date, start = 1, stop = 2),"/",substr(last_date, start = 3, stop = 4),"/2020", sep = "")) %>%
-  mutate(week = week(mdy(last_date))) %>%
-  mutate(advance = advance/1e6) %>%
-  left_join(seasonal_adj %>% 
-            select("week", "sf") %>%
-            mutate(sf = 100/sf)) %>%
-  mutate(advance_sa = advance * sf) 
-
-predicted_sa <- weekly_predict_data %>%
-  mutate(week_str = paste(format.Date(first_date, format="%m/%d"),"-",format.Date(last_date, format="%m/%d"),sep="")) %>%
-    left_join(seasonal_adj %>% 
-            select("week", "sf") %>%
-            mutate(sf = 100/sf)) %>%
-  mutate(predicted_ui_report = predicted_ui_report/1e6,
-         predicted_ui_lb_report = predicted_ui_lb_report/1e6,
-         predicted_ui_ub_report = predicted_ui_ub_report/1e6) %>%
-  mutate(predicted_ui_report_sa = predicted_ui_report*sf,
-         predicted_ui_lb_report_sa = predicted_ui_lb_report*sf,
-         predicted_ui_ub_report_sa = predicted_ui_ub_report*sf) %>%
-  select(week_str, week, ends_with("sa")) 
-
-predict_vs_report <- left_join(predicted_sa, reported_sa)%>%
-  group_by(week_str, week) %>%
-  summarise(predicted_ui_report_sa = sum(predicted_ui_report_sa),
-            predicted_ui_lb_report_sa = sum(predicted_ui_lb_report_sa),
-            predicted_ui_ub_report_sa = sum(predicted_ui_ub_report_sa),
-            advance_sa = sum(advance_sa)) %>%
-filter(week < week(today_date))
-
-cbscheme <- c("#E69F00", "#0072B2", "#D55E00")
-  
-ggplot(data = predict_vs_report) +
-  geom_pointrange(aes(y = predicted_ui_report_sa, ymin = predicted_ui_lb_report_sa,
-                      ymax = predicted_ui_ub_report_sa, x = week), color = cbscheme[2], size = .5) +
-  geom_point(aes(y = advance_sa, x = week),  color = cbscheme[1], size = 2) +
-   geom_text_repel(aes(y = predicted_ui_report_sa, x = week,  label = round(predicted_ui_report_sa,digits=1)), color = cbscheme[2], size = 3, nudge_x = -0.25) +
-  geom_text_repel(aes(y = advance_sa, x = week,  label = round(advance_sa, digits = 1)), color = cbscheme[1], size = 3, nudge_x = 0.25) +
-  ylim(c(0,10)) +
-  theme_classic(base_size=10) +
-  coord_flip() +
-labs(x= "Time Period", y = "Estimated National Claims, Seasonally Adjusted (Millions)") 
-
-```
-
-
-
-# Appendix
 
 
 
