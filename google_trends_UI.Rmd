@@ -217,36 +217,11 @@ daily_UI_Claims = daily_UI_Claims %>% filter(!is.na(ui_claims_daily)) %>%
 
 ### Load in true State Data
 
-UI_Claims_March21_True <- read_excel("data/UI_20200326_states.xlsx") %>%
-  left_join(tibble(STATE = state.name, location = state.abb)) %>%
+UI_Claims_True <- read_excel("data/StateUIClaims_since0315.xlsx") %>%
+  left_join(tibble(State = state.name, location = state.abb)) %>%
   mutate(location = replace_na(location, "DC")) %>%
-  select(location, Advance)
-
-UI_Claims_March28_True <- read_excel("data/StateUIClaims03282020.xlsx", sheet = "Sheet1") %>%
-  left_join(tibble(STATE = state.name, location = state.abb)) %>%
-  select(location, `2 week total`, advance_0322, advance_0315, updated_0315) %>%
-  mutate(location = replace_na(location, "DC"))
-
-UI_Claims_April04_True <- read_excel("data/StateUIClaims_04052020.xlsx", sheet = "WE200404") %>%
-  left_join(tibble(STATE = state.name, location = state.abb)) %>%
-  select(location, advance_0404=Advance, updated_0322=`Prior Wk`) %>%
-  mutate(location = replace_na(location, "DC"))
-
-UI_Claims_April11_True <- read_excel("data/StateUIClaims_04112020.xlsx", sheet = "States") %>%
-  left_join(tibble(STATE = state.name, location = state.abb)) %>%
-  select(location, advance_0411=Advance, updated_0404=`Prior Wk`) %>%
-  mutate(location = replace_na(location, "DC"))
-
-UI_Claims_April18_True <- read_excel("data/StateUIClaims_04182020.xlsx", sheet = "WE0418") %>%
-  left_join(tibble(STATE = state.name, location = state.abb)) %>%
-  select(location, advance_0418=Advance, updated_0411=`Prior Wk`) %>%
-  mutate(location = replace_na(location, "DC"))
-
-UI_Claims_True = UI_Claims_March28_True %>% 
-  left_join(UI_Claims_April04_True) %>% 
-  left_join(UI_Claims_April11_True) %>% 
-  left_join(UI_Claims_April18_True) %>%
-  select(-`2 week total`)
+  select(-State) %>%
+  select(location, everything())
 
 ## Read in Labor force data
 
@@ -614,7 +589,8 @@ weekly_predict_data  %>%  ungroup() %>%
          predicted_ui_ub_report_sa = predicted_ui_ub_report*sf) %>%
   select(week_str, week, ends_with("report"), ends_with("sa")) %>%
   summarize_all(sum) %>%
-  arrange(week) %>% select(-week)%>%
+  arrange(week) %>% select(-week) %>%
+  #filter(week_str == "04/26-05/02" | week_str == "04/19-04/25") %>%
   kable(digits = 1, format.args = list(big.mark = ",", scientific = FALSE),
         col.names = c("Week", "Predicted UI Claims (millions)",
                                   "Lower Bound",
@@ -625,6 +601,17 @@ weekly_predict_data  %>%  ungroup() %>%
   kable_styling(bootstrap_options = c("striped", "hover"), full_width = F) %>%
   add_header_above(c(" " = 2, "95% Confidence Interval" = 2, " " = 1, "95% Confidence Interval" = 2)) %>%
   add_header_above(c(" " = 1, "Not Seasonally Adjusted" = 3, "Seasonally Adjusted" = 3))
+
+
+#state_predict_change <- weekly_predict_data %>% 
+#  filter(week == 17 | week == 18) %>%
+#  select(location, week, predicted_ui_report) %>%
+#  spread(week, predicted_ui_report) %>%
+#  rename(week_end_425 = '17') %>%
+#  rename(week_end_502 = '18') %>%
+#  mutate(pct_change = (week_end_502 - week_end_425) / week_end_425) %>%
+#  write_csv("data/state_predictions_we0502.csv")
+
 ```
 
 # Model evaluation / validation
@@ -954,6 +941,7 @@ weekly_predict_data %>% ungroup() %>% filter(week == 12 | week == 13 | week == 1
   select(State, pred_total = Total, pred_0315 = `12`, pred_0322 =`13`, pred_0328 =`14`,
          google_0315 = google_12, google_0322 = google_13, google_0328 = google_14) %>%
   write_csv("data/state_predictions_weekly4042020.csv")
+
 ```
 
 
