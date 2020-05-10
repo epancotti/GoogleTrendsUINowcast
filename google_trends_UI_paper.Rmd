@@ -1126,3 +1126,156 @@ partial_map
 
 
 
+
+
+
+<!--
+  ## Latest Results
+  We predict large variation across states and the table below describes, for each state, the estimated claims level based only on extrapolation from news reports, the search-intensity change and the forecast claims level based on the model combining news reports and search-intensity information. These state estimates are not seasonally adjusted.
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+
+report_output %>% left_join(UI_Claims_True %>% rename(State = location)) %>%
+  mutate(`2 week total`  = advance_0321 + updated_0315) %>%
+  select(State,
+         google_12, advance_0315, updated_0315,
+         `12`,  google_13, advance_0321,
+         `13`,   `2 week total`,  Total ) %>%
+  kable(digits = 0, format.args = list(big.mark = ",", scientific = FALSE),
+        col.names = c("State",  "Google Trends Change from 2/22-3/14", "Advance Official UI Claims", "Revised Official UI Claims",  "Predicted UI Claims", "Google Trends Change from 2/22-3/14",  "Advance Official UI Claims", "Predicted UI Claims", "Revised + Advance Official UI Claims", "Predicted UI Claims")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F) %>%
+  add_header_above(c(" " = 1, "Week 3/15-3/21" = 4, "Week 3/22-3/28" = 3, "Combined Weeks 3/15-3/28"=2)) %>%
+  scroll_box(width = "1000px", height = "400px")
+
+weekly_predict_data %>% ungroup() %>% filter(week == 12 | week == 13 | week == 14) %>%
+  select(location, week, predicted_ui = predicted_ui_report) %>%
+  spread(week, predicted_ui) %>%
+  left_join(UI_Claims_March21_True) %>%
+  left_join(growth_rate_weekly3) %>%
+  rename(State = location) %>%
+  mutate(google_12 = late - early,
+         google_13 = week13 - early,
+         google_14 = week14 - early) %>%
+  select(State,  Advance, google_12, `12`,  google_13, `13`, google_14, `14`) %>%
+  mutate(Total = `12` + `13`) %>%
+  select(State, pred_total = Total, pred_0315 = `12`, pred_0322 =`13`, pred_0328 =`14`,
+         google_0315 = google_12, google_0322 = google_13, google_0328 = google_14) %>%
+  write_csv("data/state_predictions_weekly4042020.csv")
+```
+
+
+
+
+
+```{r, eval = FALSE, echo = FALSE, warning=FALSE, message=FALSE}
+#####A BUNCH OF COMMENTED OUT STUFF REMOVE OR MOVE LATER
+<!--
+  
+  As a check, comparing to the advance + revised:
+  evaluation = weekly_predict_data %>% group_by(location) %>%
+  filter(week == 12 | week == 13) %>%
+  summarize(predicted_ui_report = sum(predicted_ui_report)) %>%
+  left_join(UI_Claims_March28_True) %>%
+  mutate(advance_sum = advance_0322 + updated_0315) %>%
+  select(`State` = location,
+         Advance = advance_sum,
+         `Predicted UI Claims` = predicted_ui_report)
+
+ggplot(data = evaluation) +
+  geom_text(aes(x = Advance/1000, y = `Predicted UI Claims`/1000, label=State)) +
+  labs(x = "Advance + Revised Official Estimates (thousands)",
+       y = "Predicted Estimate of UI Claim s(thousands)",
+       title = "Comparing Model Predictions to Advance + Revised Estimates",
+       subtitle = "Time Period:  3/15-3/28",
+       color = "Prediction") +
+  annotate("text", x = -Inf, y = Inf, hjust = 0, vjust = 1,
+           label = lm_eqn(lm(`Predicted UI Claims` ~ Advance, evaluation)), parse = TRUE)+
+  theme_classic(base_size=12) +
+  geom_abline(slope=1, intercept=0)
+
+ggplot(data = evaluation) +
+  geom_text(aes(x = Advance/1000, y = `Predicted UI Claims`/1000, label=State))  +
+  labs(x = "Advance Official Estimates (thousands)",
+       y = "Predicted Estimate of UI Claim (thousands)",
+       title = "Comparing Model Predictions to Advance Estimates",
+       subtitle = "Time Period:  3/15-3/28",
+       color = "Prediction") +
+  theme_classic(base_size=12) +
+  annotate("text", x = 10, y = 1000, hjust = 0, vjust = 1,
+           label = lm_eqn(lm(log(`Predicted UI Claims`) ~ log(Advance), evaluation)), parse = TRUE)+
+  scale_y_log10() +
+  scale_x_log10() +
+  geom_abline(slope=1, intercept=0)
+
+
+-->
+  
+  
+  <!-- ```{r} -->
+  <!-- regions <- read_excel("data/regions.xlsx") -->
+  <!-- plot_data = growth_rate_weekly3 %>%  -->
+  <!--   mutate(late = late - early, -->
+                  <!--          late_nyt = late_nyt - early, -->
+                  <!--          late_next = late_next - early) %>% -->
+  <!--   select(location, `3/15-3/21`=late,  -->
+                  <!--          `3/22-3/28` = late_nyt,  -->
+                  <!--          `3/29-3/31` =late_next) %>%  -->
+  <!--   gather(time_period, val, -location)  %>% -->
+  <!--   inner_join(regions)  -->
+  <!-- plot_data$time_period <- fct_rev(plot_data$time_period ) -->
+  <!-- ggplot(data = plot_data) + geom_col(aes(y = val, x = reorder(location, -val), fill = as.factor(time_period)), position = "dodge") + coord_flip() + theme_classic(base_size = 16) + -->
+  <!--   labs(y = "Change in Google Trends from baseline", -->
+                <!--        x = "", -->
+                <!--        title = "Growth in search history relative to baseline (2/22-3/14)", -->
+                <!--        subtitle = "Searches for 'file for unemployment'", -->
+                <!--        fill = "Time Period" -->
+                <!--   ) + -->
+  <!--   theme(strip.background = element_blank()) + -->
+  <!--   facet_wrap(~bigregion, scales = "free_y") -->
+  <!-- ``` -->
+  
+  <!-- plot_data = weekly_predict_data %>%  filter(location != "DC") %>%  -->
+  <!--   mutate(week_str = case_when(week == 12 ~ "3/15-3/21", -->
+                                       <!--                               week == 13 ~ "3/22-3/28", -->
+                                       <!--                               week == 14 ~ "3/29-4/4", -->
+                                       <!--                               week == 15 ~ "4/5-4/11")) %>% -->
+  <!--   left_join(lf_state) %>% mutate(share = predicted_ui_report/labor_force) %>% select(location, week_str, share, predicted_ui_report)  -->
+  
+  <!--   plot_data %>% spread(week_str, predicted_ui_report) %>% write_csv("state_level_predictions.csv") -->
+  
+  
+  <!-- ggplot(data = plot_data %>% filter(week == 15)) + geom_col(aes(y = share, x = reorder(location, -share)))  + coord_flip() + theme_classic(base_size = 24) + theme(axis.text = element_text(size = 16)) labs(y = "Predicted Share of Labor Force Filed for UI", x="", title = "Predictions of Initial State UI claims for Week 4/5-4/11")  + scale_y_continuous(expand = c(0, 0)) -->
+  
+  <!-- ggplot(data = plot_data %>% filter(week_str == "4/5-4/11")) + geom_bar(aes(y = share, x = reorder(location, -share), width=labor_force))  + coord_flip() + theme_classic(base_size = 24) + theme(axis.text = element_text(size = 16)) + labs(y = "Predicted Share of Labor Force Filed for UI", x="", title = "Predictions of Initial State UI claims for Week 4/5-4/11")  + scale_y_continuous(expand = c(0, 0)) -->
+  
+  <!-- plot_data = plot_data %>%  filter(week_str == "4/5-4/11") %>% arrange(share) -->
+  <!-- plot_data$right <- cumsum(plot_data$labor_force) + 30*c(0:(nrow(plot_data)-1)) -->
+  <!-- plot_data$left <- plot_data$right - plot_data$labor_force  -->
+  <!-- ```{r} -->
+  <!-- sum(plot_data$labor_force) -->
+  <!-- ggplot(plot_data, aes(ymin = 0)) + -->
+  <!--   geom_rect(aes( -->
+                          <!--     xmin = left / sum(plot_data$labor_force), -->
+                          <!--     xmax = right / sum(plot_data$labor_force), -->
+                          <!--     ymax = share -->
+                          <!--   )) + -->
+  <!--   coord_flip() + -->
+  <!--   geom_text_repel(aes( -->
+                                <!--     y = share , -->
+                                <!--     x = (left / sum(plot_data$labor_force))  + (right - left) / (2 * sum(plot_data$labor_force)), -->
+                                <!--     label = location, color=location -->
+                                <!--   ), hjust = "left") + -->
+  <!--   theme_classic(base_size = 24) + -->
+  <!--   theme(axis.text = element_text(size = 16), -->
+                 <!--         legend.position = "none") + -->
+  <!--   labs(y = "Predicted Share of Labor Force Filed for UI", -->
+                <!--        x = "State Share of Labor Force", -->
+                <!--        title = "Predictions of Initial State UI claims for Week 4/5-4/11") + -->
+  <!--   scale_y_continuous(expand = c(0, 0), limits = c(0, 0.12)) -->
+  
+  <!-- ``` -->
+  
+
+```
+
+
