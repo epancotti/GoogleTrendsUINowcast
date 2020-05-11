@@ -502,89 +502,67 @@ dailyuiplot_plotstate
 
 #Set up data
 
-##First bring in weekly claims data prior to COVID 
+##First bring in weekly claims data prior to COVID !!! THIS ONLY CONTAINS 8 WEEKS
 weekly_UI_janthrumarch = as.data.frame(read_xlsx("data/UI_claims_jan1thrumarch21.xlsx")) %>%
   rename("state" = "State") %>%
   rename("week" = "Filed week ended") %>%
   rename("claims" = "Initial Claims") %>%
   mutate_at("week", funs(ymd)) %>%
   mutate(week = epiweek(week)) %>%
-  subset(select = c("state", "week", "claims")) %>%
-  left_join(data_policy_states[, c("state", "location")], by = "state")
+  select(state, claims, week) %>%
+  group_by(state) %>%
+  summarize_all(sum) %>%
+  select(-week) %>%
+  rename("precovid" = "claims")
 
-##Clean data from week ending March 28 (4/2/20 news release) !! Will need to update weekly with new data pull
-week13ui <- subset(UI_Claims_March28_True, select = c("location", "advance_0322")) %>%
-  mutate(week = 13) %>%
-  rename("claims" = "advance_0322") %>%
-  left_join(data_policy_states[, c("state", "location")], by = "location")
 
-##Merge together to get all weekly UI data available
-weekly_UI_janthrumarch <- rbind(weekly_UI_janthrumarch, week13ui, by = "location")
+## Bring in more recent UI claims data 
+weekly_UI_marchthrunow <- UI_Claims_True  %>%
+  select(starts_with("updated"), advance_0502, location) %>%
+  group_by(location) %>%
+  gather(week, claims, -location) %>%
+  select(-week) %>%
+  group_by(location) %>%
+  summarize_all(sum) %>%
+  rename("postcovid" = "claims") %>%
+  rename("abbr" = "location")
 
-##Merge with policy data at week-level
-weekly_claims_policy <- left_join(weekly_UI_janthrumarch, data_policy_states[, c("partial_week", "complete_week", "location")], by = "location")
+##Bring in shape file
+states <- us_map(regions = "states") %>%
+  rename("state"="full")
 
-##Filter out data before mid-Feb
-weekly_claims_policy <- weekly_claims_policy %>%
-    group_by(location) %>%
-    mutate(week = as.numeric(week)) %>%
-    arrange(location ,week) %>%
-    mutate(claims = as.numeric(claims))  %>%
-    filter(week >= 8)   %>%
-    filter(!is.na(location))
-
-##Reshape to wide
-weekly_claims_policy_wide <- weekly_claims_policy %>% 
-    spread(week, claims) %>%
-    rename("week13" = "13") %>%
-    rename("week12" = "12") %>%
-    rename("week11" = "11") %>%
-    rename("week10" = "10") %>%
-    rename("week9" = "9") %>%
-    rename("week8" = "8") 
-
-#Replace OR data manually (Oregon DOL economist asked me to run this map with updated data, commenting out)
-  #weekly_claims_policy_wide2[38, "week13"] <- 92700
-  #weekly_claims_policy_wide2[38, "week12"] <- 76500
-  #weekly_claims_policy_wide2[38, "week11"] <- 4900
-
-## Generate percent change in claims (3 week moving average)
-weekly_claims_policy_wide <- weekly_claims_policy_wide %>% 
-    mutate(claims_postcovid = as.numeric(week11)+as.numeric(week12)+as.numeric(week13)) %>%
-    mutate(claims_precovid = as.numeric(week10)+as.numeric(week9)+as.numeric(week8)) %>%
-    mutate(claims_pchg = 100*((claims_postcovid - claims_precovid)/claims_precovid))  %>% 
-    mutate(region = tolower(state))
-
-##Set up shape files
-states <- map_data("state")
-claims_chg_map_data <- left_join(states, weekly_claims_policy_wide, by = "region")
+##Merge recent and previous claims
+weekly_UI_map <- left_join(weekly_UI_janthrumarch, states) %>%
+  left_join(weekly_UI_marchthrunow) %>%
+  mutate(claims_pchg = 100*((postcovid - precovid)/precovid)) %>%
+  left_join(data_policy_states, by = "state")
 
 #Do some stuff to get pattern overlaid on map for complete closures by 3/2
-nonessential_closure_states <- data_policy_states %>%
-  filter(!is.na(complete)) %>%
-  filter(complete <= "2020-03-28") %>%
-  mutate(region = tolower(state)) %>%
-  subset(select = region) 
-nonessential_closure_states <- as.data.frame(nonessential_closure_states)
-source("https://raw.githubusercontent.com/imaddowzimet/drawcrosshatch/master/draw_crosshatch.R")
-claims_chg_map_data_completeclose <- claims_chg_map_data %>%
-  filter(region %in% nonessential_closure_states$region) %>%
-  group_by(group) %>% 
-  nest() 
-lines <- map_df(claims_chg_map_data_completeclose$data, draw.crosshatch, width = .3, pattern= "horizontal")
+#nonessential_closure_states <- data_policy_states %>%
+#  filter(!is.na(complete)) %>%
+#  filter(complete <= "2020-03-28") %>%
+#  mutate(state = tolower(state)) %>%
+#  subset(select = state) 
+#nonessential_closure_states <- as.data.frame(nonessential_closure_states)
+#source("https://raw.githubusercontent.com/imaddowzimet/drawcrosshatch/master/draw_crosshatch.R")
+#claims_chg_map_data_completeclose <- claims_chg_map_data %>%
+#  filter(state %in% nonessential_closure_states$state) %>%
+#  group_by(group) %>% 
+#  nest() 
+#lines <- map_df(claims_chg_map_data_completeclose$data, draw.crosshatch, width = .3, pattern= "horizontal")
 
 #Make map
-ui_pctchg_map <- ggplot(claims_chg_map_data, aes(long, lat, group = group)) + 
+ggplot(weekly_UI_map, aes(x, y, group = group)) + 
   geom_polygon(aes(fill = claims_pchg), color = "white") + 
-  geom_segment(data=lines, aes(x= x, y = y , xend = xend, yend = yend), 
-                    inherit.aes = F, color = "white", alpha = .6) +
+  #geom_segment(data=lines, aes(x= x, y = y , xend = xend, yend = yend), 
+                    #inherit.aes = F, color = "white", alpha = .6) +
   labs(title="Percent Change in Initial UI Claims", 
-       subtitle = "Between 2/16-3/7 to 3/8-3/28") +
+       subtitle = "Between 1/13-3/7 to 3/8-5/2") +
   scale_fill_gradient2( 
       high = "orangered3", na.value = "gray50",  
       breaks = c(round(min(claims_chg_map_data$claims_pchg)),
                 round(max(claims_chg_map_data$claims_pchg)))) +
-  labs(caption = "Note: States with lines adopted a non-essential business closure order by 3/28.") +
+  #labs(caption = "Note: States with lines adopted a non-essential business closure order by 3/28.") +
   theme(axis.text.x = element_blank(),
         axis.text.y = element_blank(),
         axis.ticks = element_blank(),
@@ -597,7 +575,7 @@ ui_pctchg_map <- ggplot(claims_chg_map_data, aes(long, lat, group = group)) +
         plot.subtitle = element_text(hjust = 0.5, size = 14),
         plot.caption = element_text(hjust = 0.5, size = 12))
 
-ui_pctchg_map
+
 
 ```
 

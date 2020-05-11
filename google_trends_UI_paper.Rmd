@@ -40,6 +40,7 @@ library(reshape2)
 library(lfe)
 library(tidyr)
 library(broom)
+library(usmap)
 
 
 
@@ -975,7 +976,167 @@ my_blue <- my_blue[-(1:2)]
 
 There is little inter-week variation in closure order adoption-- most closure orders were clustered over two weeks. Without our model, attempts to identify the effects of NPIs, including closure orders and other policies, would be nearly impossible. High-frequency proxy data (such as Google Trends) can serve as an important tool for evaluating the effects of policies in real time.
 
-```{r, eval = FALSE, echo = FALSE, warning=FALSE, message=FALSE}
+
+# Robustness
+
+## How does the slope coefficient change as the estimation sample widens?
+
+
+## How does the model's share of variance explained change as the estimation sample widens?
+
+
+# Conclusion
+Speedy information about recessionary turns have great value to inform policymakers, businesses and others making economic decisions. Data on internet search intensity consistent across geographies is available at a faster pace than data on new UI claims and so can provide a basis for more-timely prediction of recessionary shifts. Given proper care in data construction, even simple modeling techniques yield informative predictions. The more-general principle that, in a world where individuals use internet search as an early stage in pursuing many economic actions, its consistency across place and time and the speed of its release makes search-intensity data a potentially useful proxy for many economic variables of interest [@ChoiVarian].
+
+
+# Appendix
+
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+
+##Add shape files
+states <- map_data("state")
+dates_map <- left_join(states, data_policy_states, by = "region")
+
+mycolors <- colorRampPalette(brewer.pal(8, "BuPu"))(17)
+
+#Map of complete closure orders
+dates_map$complete <- format(dates_map$complete, format = "%m/%d")
+complete_map <- 
+  ggplot(dates_map, aes(long, lat, group = group)) + 
+  geom_polygon(aes(fill = factor(complete)), color = "white") + 
+  ggtitle("Non-Essential Business Closure Orders") +
+  scale_fill_manual(values = mycolors, 
+                    name = "Effective Date", 
+                    na.value = "grey50", 
+                    drop = "TRUE") +
+  guides(fill = guide_legend(ncol = 2)) +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        rect = element_blank(),
+        axis.title.y=element_blank(), 
+        axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5, size = 14),
+        aspect.ratio=2/4)
+
+mycolors <- colorRampPalette(brewer.pal(8, "GnBu"))(17)
+
+#Map of Partial closure orders
+dates_map$partial <- format(dates_map$partial, format = "%m/%d")
+partial_map <- 
+  ggplot(dates_map, aes(long, lat, group = group)) + 
+  geom_polygon(aes(fill = factor(partial)), color = "white") + 
+  ggtitle("Prohibition on Dining In and Partial Closure Orders") +
+  scale_fill_manual(values = mycolors, 
+                    guide_legend(ncol = 2),
+                    name = "Effective Date", 
+                    na.value = "grey50", 
+                    drop = "TRUE") +
+  guides(fill = guide_legend(ncol = 2)) +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        rect = element_blank(),
+        axis.title.y=element_blank(), 
+        axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5, size = 14),
+        aspect.ratio=2/4)
+
+
+complete_map
+partial_map
+
+```
+
+
+
+# Appendix 2
+
+#Map of change in UI claims 
+
+```{r, eval = TRUE, echo = FALSE, warning=FALSE, message=FALSE}
+
+###Map pct change in unemployment claims pre-covid to during-covid###
+
+#Set up data
+
+##First bring in weekly claims data prior to COVID !!! THIS ONLY CONTAINS 8 WEEKS
+weekly_UI_janthrumarch = as.data.frame(read_xlsx("data/UI_claims_jan1thrumarch21.xlsx")) %>%
+  rename("state" = "State") %>%
+  rename("week" = "Filed week ended") %>%
+  rename("claims" = "Initial Claims") %>%
+  mutate_at("week", funs(ymd)) %>%
+  mutate(week = epiweek(week)) %>%
+  select(state, claims, week) %>%
+  group_by(state) %>%
+  summarize_all(sum) %>%
+  select(-week) %>%
+  rename("precovid" = "claims")
+
+
+## Bring in more recent UI claims data 
+weekly_UI_marchthrunow <- UI_Claims_True  %>%
+  select(starts_with("updated"), advance_0502, location) %>%
+  group_by(location) %>%
+  gather(week, claims, -location) %>%
+  select(-week) %>%
+  group_by(location) %>%
+  summarize_all(sum) %>%
+  rename("postcovid" = "claims") %>%
+  rename("abbr" = "location")
+
+##Bring in shape file
+states <- us_map(regions = "states") %>%
+  rename("state"="full")
+
+##Merge recent and previous claims
+weekly_UI_map <- left_join(weekly_UI_janthrumarch, states) %>%
+  left_join(weekly_UI_marchthrunow) %>%
+  mutate(claims_pchg = 100*((postcovid - precovid)/precovid)) %>%
+  left_join(data_policy_states, by = "state")
+
+#Do some stuff to get pattern overlaid on map for complete closures by 3/2
+#nonessential_closure_states <- data_policy_states %>%
+#  filter(!is.na(complete)) %>%
+#  filter(complete <= "2020-03-28") %>%
+#  mutate(state = tolower(state)) %>%
+#  subset(select = state) 
+#nonessential_closure_states <- as.data.frame(nonessential_closure_states)
+#source("https://raw.githubusercontent.com/imaddowzimet/drawcrosshatch/master/draw_crosshatch.R")
+#claims_chg_map_data_completeclose <- claims_chg_map_data %>%
+#  filter(state %in% nonessential_closure_states$state) %>%
+#  group_by(group) %>% 
+#  nest() 
+#lines <- map_df(claims_chg_map_data_completeclose$data, draw.crosshatch, width = .3, pattern= "horizontal")
+
+#Make map
+ggplot(weekly_UI_map, aes(x, y, group = group)) + 
+  geom_polygon(aes(fill = claims_pchg), color = "white") + 
+  #geom_segment(data=lines, aes(x= x, y = y , xend = xend, yend = yend), 
+                    #inherit.aes = F, color = "white", alpha = .6) +
+  labs(title="Percent Change in Initial UI Claims", 
+       subtitle = "Between 1/13-3/7 to 3/8-5/2") +
+  scale_fill_gradient2(high = "orangered3", na.value = "gray50") +
+  #labs(caption = "Note: States with lines adopted a non-essential business closure order by 3/28.") +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        rect = element_blank(),
+        axis.title.y=element_blank(), 
+        axis.title.x=element_blank(), 
+        legend.title=element_blank(),
+        legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, size = 14),
+        plot.caption = element_text(hjust = 0.5, size = 12))
+
+```
+
+
+#Closure order event studies
+
+```{r, eval = TRUE, echo = FALSE, warning=FALSE, message=FALSE}
 
 #CAN ALSO INCLUDE THESE EVENT STUDIES IF WE WANT TO, OR WE CAN JUST POINT TO KONG & PRINZ
 #TO ENABLE, CHANGE eval = FALSE TO TRUE
@@ -1050,88 +1211,10 @@ ggplot(data=reg_est, aes(x=days, y=estimate)) +
 
 ```
 
-# Robustness
-
-## How does the slope coefficient change as the estimation sample widens?
-
-
-## How does the model's share of variance explained change as the estimation sample widens?
-
-
-# Conclusion
-Speedy information about recessionary turns have great value to inform policymakers, businesses and others making economic decisions. Data on internet search intensity consistent across geographies is available at a faster pace than data on new UI claims and so can provide a basis for more-timely prediction of recessionary shifts. Given proper care in data construction, even simple modeling techniques yield informative predictions. The more-general principle that, in a world where individuals use internet search as an early stage in pursuing many economic actions, its consistency across place and time and the speed of its release makes search-intensity data a potentially useful proxy for many economic variables of interest [@ChoiVarian].
-
-
-# Appendix
-
-
-```{r, echo = FALSE, warning=FALSE, message=FALSE}
-
-##Add shape files
-states <- map_data("state")
-dates_map <- left_join(states, data_policy_states, by = "region")
-
-
-mycolors <- colorRampPalette(brewer.pal(8, "BuPu"))(17)
-
-
-#Map of complete closure orders
-dates_map$complete <- format(dates_map$complete, format = "%m/%d")
-complete_map <- 
-  ggplot(dates_map, aes(long, lat, group = group)) + 
-  geom_polygon(aes(fill = factor(complete)), color = "white") + 
-  ggtitle("Non-Essential Business Closure Orders") +
-  scale_fill_manual(values = mycolors, 
-                    name = "Effective Date", 
-                    na.value = "grey50", 
-                    drop = "TRUE") +
-  guides(fill = guide_legend(ncol = 2)) +
-  theme(axis.text.x = element_blank(),
-        axis.text.y = element_blank(),
-        axis.ticks = element_blank(),
-        rect = element_blank(),
-        axis.title.y=element_blank(), 
-        axis.title.x=element_blank(),
-        plot.title = element_text(hjust = 0.5, size = 14),
-        aspect.ratio=2/4)
-
-mycolors <- colorRampPalette(brewer.pal(8, "GnBu"))(17)
-
-#Map of Partial closure orders
-dates_map$partial <- format(dates_map$partial, format = "%m/%d")
-partial_map <- 
-  ggplot(dates_map, aes(long, lat, group = group)) + 
-  geom_polygon(aes(fill = factor(partial)), color = "white") + 
-  ggtitle("Prohibition on Dining In and Partial Closure Orders") +
-  scale_fill_manual(values = mycolors, 
-                    guide_legend(ncol = 2),
-                    name = "Effective Date", 
-                    na.value = "grey50", 
-                    drop = "TRUE") +
-  guides(fill = guide_legend(ncol = 2)) +
-  theme(axis.text.x = element_blank(),
-        axis.text.y = element_blank(),
-        axis.ticks = element_blank(),
-        rect = element_blank(),
-        axis.title.y=element_blank(), 
-        axis.title.x=element_blank(),
-        plot.title = element_text(hjust = 0.5, size = 14),
-        aspect.ratio=2/4)
-
-
-complete_map
-partial_map
-
-```
-
-
-
-
-
-
 <!--
   ## Latest Results
   We predict large variation across states and the table below describes, for each state, the estimated claims level based only on extrapolation from news reports, the search-intensity change and the forecast claims level based on the model combining news reports and search-intensity information. These state estimates are not seasonally adjusted.
+
 
 ```{r, echo = FALSE, warning=FALSE, message=FALSE}
 
