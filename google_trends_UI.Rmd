@@ -217,7 +217,7 @@ daily_UI_Claims = daily_UI_Claims %>% filter(!is.na(ui_claims_daily)) %>%
 
 ### Load in true State Data
 
-UI_Claims_True <- read_excel("data/StateUIClaims_since0315.xlsx") %>%
+UI_Claims_True <- read_excel("data/StateUIClaims_since0314.xlsx") %>%
   left_join(tibble(State = state.name, location = state.abb)) %>%
   mutate(location = replace_na(location, "DC")) %>%
   select(-State) %>%
@@ -354,12 +354,12 @@ options(knitr.kable.NA = "--")
 report_output = weekly_predict_data %>% ungroup() %>% filter(week == 12 | week == 13) %>%
   select(location, week, predicted_ui = predicted_ui_report) %>%
   spread(week, predicted_ui) %>%
-  left_join(UI_Claims_March21_True) %>%
+  left_join(UI_Claims_True) %>%
   left_join(growth_rate_weekly3) %>%
   rename(State = location) %>%
   mutate(google_12 = late - early,
          google_13 = week13 - early) %>%
-  select(State,  Advance, google_12, `12`,  google_13, `13`) %>%
+  select(State,  advance_0321, google_12, `12`,  google_13, `13`) %>%
   mutate(Total = `12` + `13`)
 ```
 
@@ -626,15 +626,15 @@ For the week of 3/15-3/21, there are initial advance reports of UI claims at the
 evaluation = weekly_predict_data %>% ungroup() %>%
   filter(week == 12) %>%
   select(-week) %>%
-  left_join(UI_Claims_March21_True) %>%
+  left_join(UI_Claims_True) %>%
   select(`State` = location,
-         Advance,
+         advance_0321,
          `Predicted UI Claims` = predicted_ui_report,
          `Lower Bound`=predicted_ui_lb_report,
          `Upper Bound`=predicted_ui_ub_report)
 
 ggplot(data = evaluation) +
-  geom_text(aes(x = Advance/1000, y = `Predicted UI Claims`/1000, label=State)) +
+  geom_text(aes(x = advance_0321/1000, y = `Predicted UI Claims`/1000, label=State)) +
   labs(x = "Advance Official Estimates (thousands)",
        y = "Predicted Estimate of UI Claim (thousands)",
        title = "Comparing Model Predictions to Advance Estimates",
@@ -642,11 +642,11 @@ ggplot(data = evaluation) +
        color = "Prediction") +
   theme_classic(base_size=15) +
   annotate("text", x = -Inf, y = Inf, hjust = 0, vjust = 1,
-           label = lm_eqn(lm(`Predicted UI Claims` ~ Advance, evaluation)), parse = TRUE)+
+           label = lm_eqn(lm(`Predicted UI Claims` ~ advance_0321, evaluation)), parse = TRUE)+
   geom_abline(slope=1, intercept=0)
 
 ggplot(data = evaluation) +
-  geom_text(aes(x = Advance/1000, y = `Predicted UI Claims`/1000, label=State))  +
+  geom_text(aes(x = advance_0321/1000, y = `Predicted UI Claims`/1000, label=State))  +
   labs(x = "Advance Official Estimates (thousands)",
        y = "Predicted Estimate of UI Claim (thousands)",
        title = "Comparing Model Predictions to Advance Estimates",
@@ -654,7 +654,7 @@ ggplot(data = evaluation) +
        color = "Prediction") +
   theme_classic(base_size=15) +
     annotate("text", x = 3, y = 300, hjust = 0, vjust = 1,
-           label = lm_eqn(lm(log(`Predicted UI Claims`) ~ log(Advance), evaluation)), parse = TRUE)+
+           label = lm_eqn(lm(log(`Predicted UI Claims`) ~ log(advance_0321), evaluation)), parse = TRUE)+
   scale_y_log10() +
   scale_x_log10() +
   geom_abline(slope=1, intercept=0)
@@ -670,9 +670,9 @@ We can also look at the *revised* numbers reported on April 2nd and see how we d
 evaluation = weekly_predict_data %>% ungroup() %>%
   filter(week == 12) %>%
   select(-week) %>%
-  left_join(UI_Claims_March28_True) %>%
+  left_join(UI_Claims_True) %>%
   select(`State` = location,
-         Advance = updated_0315,
+         Advance = updated_0321,
          `Predicted UI Claims` = predicted_ui_report)
 
 ggplot(data = evaluation) +
@@ -755,9 +755,9 @@ We can now also check how we did by comparing to advance estimates:
 evaluation = weekly_predict_data %>% ungroup() %>%
   filter(week == 13) %>%
   select(-week) %>%
-  left_join(UI_Claims_March28_True) %>%
+  left_join(UI_Claims_True) %>%
   select(`State` = location,
-         Advance = advance_0322,
+         Advance = advance_0328,
          `Predicted UI Claims` = predicted_ui_report)
 
 
@@ -801,9 +801,9 @@ Finally, to minimize the role of congestion concerns by averaging across weeks, 
 evaluation = weekly_predict_data %>% group_by(location) %>%
   filter(week == 12 | week == 13) %>%
   summarize(predicted_ui_report = sum(predicted_ui_report)) %>%
-  left_join(UI_Claims_March28_True) %>%
+  left_join(UI_Claims_True) %>%
   left_join(lf_state) %>%
-  mutate(advance_sum = (advance_0322 + advance_0315)) %>%
+  mutate(advance_sum = (advance_0328 + advance_0321)) %>%
   select(`State` = location,
          Advance = advance_sum,
          `Predicted UI Claims` = predicted_ui_report)  
@@ -843,9 +843,9 @@ and scaled by labor force as of February 2020:
 evaluation = weekly_predict_data %>% group_by(location) %>%
   filter(week == 12 | week == 13) %>%
   summarize(predicted_ui_report = sum(predicted_ui_report)) %>%
-  left_join(UI_Claims_March28_True) %>%
+  left_join(UI_Claims_True) %>%
   left_join(lf_state) %>%
-  mutate(advance_sum = (advance_0322 + advance_0315)/labor_force,
+  mutate(advance_sum = (advance_0328 + advance_0321)/labor_force,
          predicted_ui_report = predicted_ui_report/labor_force) %>%
   select(`State` = location,
          Advance = advance_sum,
@@ -873,8 +873,8 @@ As a check, comparing to the advance + revised:
 evaluation = weekly_predict_data %>% group_by(location) %>%
   filter(week == 12 | week == 13) %>%
   summarize(predicted_ui_report = sum(predicted_ui_report)) %>%
-  left_join(UI_Claims_March28_True) %>%
-  mutate(advance_sum = advance_0322 + updated_0315) %>%
+  left_join(UI_Claims_True) %>%
+  mutate(advance_sum = advance_0328 + updated_0321) %>%
   select(`State` = location,
          Advance = advance_sum,
          `Predicted UI Claims` = predicted_ui_report)
@@ -915,11 +915,11 @@ We predict large variation across states and the table below describes, for each
 
 ```{r, echo = FALSE, warning=FALSE, message=FALSE}
 
-report_output %>% left_join(UI_Claims_March28_True %>% rename(State = location)) %>%
-  mutate(`2 week total`  = advance_0322 + updated_0315) %>%
+report_output %>% left_join(UI_Claims_True %>% rename(State = location)) %>%
+  mutate(`2 week total`  = advance_0328 + updated_0321) %>%
   select(State,
-         google_12, advance_0315, updated_0315,
-           `12`,  google_13, advance_0322,
+         google_12, advance_0314, updated_0321,
+           `12`,  google_13, advance_0328,
          `13`,   `2 week total`,  Total ) %>%
   kable(digits = 0, format.args = list(big.mark = ",", scientific = FALSE),
          col.names = c("State",  "Google Trends Change from 2/22-3/14", "Advance Official UI Claims", "Revised Official UI Claims",  "Predicted UI Claims", "Google Trends Change from 2/22-3/14",  "Advance Official UI Claims", "Predicted UI Claims", "Revised + Advance Official UI Claims", "Predicted UI Claims")) %>%
@@ -930,13 +930,13 @@ report_output %>% left_join(UI_Claims_March28_True %>% rename(State = location))
 weekly_predict_data %>% ungroup() %>% filter(week == 12 | week == 13 | week == 14) %>%
   select(location, week, predicted_ui = predicted_ui_report) %>%
   spread(week, predicted_ui) %>%
-  left_join(UI_Claims_March21_True) %>%
+  left_join(UI_Claims_True) %>%
   left_join(growth_rate_weekly3) %>%
   rename(State = location) %>%
   mutate(google_12 = late - early,
          google_13 = week13 - early,
          google_14 = week14 - early) %>%
-  select(State,  Advance, google_12, `12`,  google_13, `13`, google_14, `14`) %>%
+  select(State,  advance_0328, google_12, `12`,  google_13, `13`, google_14, `14`) %>%
   mutate(Total = `12` + `13`) %>%
   select(State, pred_total = Total, pred_0315 = `12`, pred_0322 =`13`, pred_0328 =`14`,
          google_0315 = google_12, google_0322 = google_13, google_0328 = google_14) %>%
